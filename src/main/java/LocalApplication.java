@@ -93,7 +93,6 @@ public class LocalApplication {
     }
 
     public static void main(String[] args) {
-//        Ec2Client ec2 = Ec2Client.create(); // one shared object
         String uniqueBucket = UUID.randomUUID().toString();
         Ec2Client ec2 = Ec2Client.builder()
                 .region(Region.US_WEST_2)
