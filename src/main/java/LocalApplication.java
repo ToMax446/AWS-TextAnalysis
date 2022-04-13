@@ -1,13 +1,8 @@
-import com.amazonaws.services.connect.model.CreateQueueResult;
-import com.amazonaws.services.ec2.model.*;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
-import com.amazonaws.services.ec2.AmazonEC2;
-import com.amazonaws.services.ec2.AmazonEC2ClientBuilder;
 import software.amazon.awssdk.services.ec2.model.CreateTagsRequest;
-import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Ec2Exception;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
@@ -15,21 +10,15 @@ import software.amazon.awssdk.services.ec2.model.Reservation;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
-
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
 import static java.lang.System.exit;
-
 
 public class LocalApplication {
 
@@ -53,6 +42,19 @@ public class LocalApplication {
             }
         }
         return done;
+    }
+
+    public static List<Bucket> initializedBuckets(S3Client s3) {
+        List<Bucket> buckets = s3.listBuckets().buckets();
+        if (buckets.isEmpty()) {
+            s3.createBucket(CreateBucketRequest.builder().bucket("input").build());
+            s3.createBucket(CreateBucketRequest.builder().bucket("output").build());
+            s3.createBucket(CreateBucketRequest.builder().bucket("summary").build());
+            s3.createBucket(CreateBucketRequest.builder().bucket("parser").build());
+            s3.putObject(PutObjectRequest.builder().bucket("input").key("model").build(), RequestBody.fromFile(new File("src/main/resources/englishPCFG.ser.gz")));
+            return s3.listBuckets().buckets();
+        }
+        return buckets;
     }
 
     public static String createNewManager(Ec2Client ec2) {
@@ -93,7 +95,8 @@ public class LocalApplication {
     }
 
     public static void main(String[] args) {
-        String uniqueBucket = UUID.randomUUID().toString();
+        String worker_per_message = args[2];
+        String local_application_id = UUID.randomUUID().toString();
         Ec2Client ec2 = Ec2Client.builder()
                 .region(Region.US_WEST_2)
                 .build();
@@ -114,8 +117,8 @@ public class LocalApplication {
         if (!isManagerActive(ec2))
             managerUrl = createNewManager(ec2);
         S3Client s3 = S3Client.builder().region(Region.US_WEST_2).build();
-        s3.createBucket(CreateBucketRequest.builder().bucket(uniqueBucket).build());
-        PutObjectResponse file = s3.putObject(PutObjectRequest.builder().bucket(uniqueBucket).key("ass1").build(), RequestBody.fromFile(new File(inputFileName)));
+        initializedBuckets(s3);
+        PutObjectResponse input_file = s3.putObject(PutObjectRequest.builder().bucket("input").key(local_application_id).build(), RequestBody.fromFile(new File(inputFileName)));
 
         SqsClient sqs = SqsClient.builder().region(Region.US_WEST_2).build();
         CreateQueueResponse localQueueRes =
@@ -123,18 +126,18 @@ public class LocalApplication {
         String localManagerQueueUrl = localQueueRes.queueUrl(); // a url to a queue from the local app to the manager
 
         CreateQueueResponse managerQueueRes =
-                sqs.createQueue(CreateQueueRequest.builder().queueName("dsp-manager-to-local-queue").build());
+                sqs.createQueue(CreateQueueRequest.builder().queueName(local_application_id).build());
         String managerLocalQueueUrl = managerQueueRes.queueUrl(); // a url to a queue from the manager to the local app
-        sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody("input file__"+uniqueBucket+"__"+ file).build()); //CHECK
+        sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody(worker_per_message+"\t"+local_application_id+"\t"+ input_file).build()); //CHECK
 
         for (;;)    // loop until we get a message
         {
             List<Message> messages =
                     sqs.receiveMessage(ReceiveMessageRequest.builder().queueUrl(managerLocalQueueUrl).build()).messages();
             if (!messages.isEmpty()) {
-                String[] message = messages.get(0).body().split("__");
+                String[] message = messages.get(0).body().split("\t");
                 if (message[0].equals("done task")) {
-                    InputStream sum = s3.getObject(GetObjectRequest.builder().bucket(uniqueBucket).key(message[1]).build());
+                    InputStream sum = s3.getObject(GetObjectRequest.builder().bucket("summary").key(local_application_id).build());
                     String text = new BufferedReader(
                             new InputStreamReader(sum, StandardCharsets.UTF_8)).lines()
                             .collect(Collectors.joining("\n"));
@@ -145,7 +148,7 @@ public class LocalApplication {
                         fd.close();
                         if (args.length > 3 && args[3].equals("terminate")) //if we are on termination mode send a termination message to the manager
                             sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody("terminate").build());
-                        break; //break after
+                        break; // break after
                     } catch (IOException e) {
                         System.out.println("An error occurred.");
                         exit(1);

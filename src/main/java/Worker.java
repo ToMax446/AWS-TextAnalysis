@@ -53,9 +53,13 @@ public class Worker {
             if (!messages.isEmpty()) {
                 String[] message = messages.get(0).body().split("\t");
                 // after the parsing, the result is a text file
+                Parser.parseFile();
                 try {
-                    PutObjectResponse file = s3.putObject(PutObjectRequest.builder().bucket(uniqueBucket).key("ass1").build(), RequestBody.fromFile(new File(parsingRes)));
-                    sqs.sendMessage(SendMessageRequest.builder().queueUrl(managerUrl).messageBody("original URL of the input file: " + message[1] + " S3 URL of the analyzed file: " + file + " type of the performed analysis: " + message[0]).build());
+                    PutObjectResponse file = s3.putObject(PutObjectRequest.builder().bucket("summary").key(message[0]).build(), RequestBody.fromFile(new File(parsing_result)));
+                    // message[0] = local application ID
+                    // message[1] = type
+                    // message[2] = input file URL
+                    sqs.sendMessage(SendMessageRequest.builder().queueUrl(managerUrl).messageBody(message[2]+"\t"+file+"\t"+message[1]).build());
                     delete_Message(workerUrl, messages.get(0), sqs);
                 } catch (Exception e) {
                     sqs.sendMessage(SendMessageRequest.builder().queueUrl(managerUrl).messageBody("an exception from kind " + e + "has occurred because of the input file " + message[1]).build());
