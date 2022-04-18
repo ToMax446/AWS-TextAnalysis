@@ -16,10 +16,14 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import static java.lang.System.exit;
+
+import tools.AWSAbstractions;
+import tools.AWSAbstractions.*;
 
 public class LocalApplication {
 

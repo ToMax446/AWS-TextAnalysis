@@ -1,12 +1,19 @@
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
 import software.amazon.awssdk.services.sqs.model.CreateQueueResponse;
+import software.amazon.awssdk.services.sqs.model.Message;
+import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
+import tools.AWSAbstractions;
+import tools.Job;
 
-import java.io.InputStream;
+import java.util.Base64;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+
+import java.util.concurrent.Executors;
 
 import static java.lang.System.exit;
 
@@ -14,37 +21,8 @@ public class Manager {
     static int number_of_workers = 0;
     static int worker_per_message = 0;
     static int max_number_of_workers = 18;
-
-    public String create_Worker(Ec2Client ec2) {
-        String amiId = "ami-076515f20540e6e0b";
-        RunInstancesRequest runRequest = RunInstancesRequest.builder()
-                .imageId(amiId)
-                .instanceType(InstanceType.T1_MICRO)
-                .maxCount(1)
-                .minCount(1)
-                .build();
-        RunInstancesResponse response = ec2.runInstances(runRequest);
-        String instanceId = response.instances().get(0).instanceId();
-        Tag tag = Tag.builder()
-                .key("Name")
-                .value("worker")
-                .build();
-        CreateTagsRequest tagRequest = CreateTagsRequest.builder()
-                .resources(instanceId)
-                .tags(tag)
-                .build();
-        try {
-            ec2.createTags(tagRequest);
-            System.out.printf(
-                    "Successfully started EC2 Instance %s based on AMI %s",
-                    instanceId, amiId);
-            return instanceId;
-        } catch (Ec2Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            exit(1);
-        }
-        return "";
-    }
+    // NEED TO ADD SYNC
+    static int num_of_threads = 10;
 
     private void bootstraps_Nodes(Ec2Client ec2) {
         int count = Math.min(max_number_of_workers - number_of_workers, worker_per_message);
@@ -111,12 +89,6 @@ public class Manager {
     // כאשר יצרנו קובץ html, האפליקציה צריכה להפסיק לרוץ?
 
 
-
-
-
-
-
-
 //    SqsClient sqs = SqsClient.builder().region(Region.US_WEST_2).build();
 //    CreateQueueResponse ManagerQueueResFromLocal =
 //            sqs.createQueue(CreateQueueRequest.builder().queueName("dsp-local-to-manager-queue").build());
@@ -136,4 +108,24 @@ public class Manager {
 //
 //    InputStream sum = s3.getObject(GetObjectRequest.builder().bucket("summary").key(local_application_id).build());
 
+
+    private static Job getJobFromLocal(String queueUrl, SqsClient sqs) {
+        ReceiveMessageRequest request = ReceiveMessageRequest.builder().queueUrl(queueUrl)
+                .maxNumberOfMessages(1).build();    // a request to receive only one message
+
+        List<Message> msg;
+        do {
+            msg = sqs.receiveMessage(request).messages();
+            String[] message = msg.get(0).body().split("\t"); // there is max only one message so get it
+            // the statement int localapplication:
+            //  sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody(worker_per_message+"\t"+local_application_id+"\t"+ input_file).build()); //CHECK
+            String n = message[0];
+            if (n.equals("terminate")) // if the first arg in the message is "terminate" it's a terminate
+                return null;
+            // else it's a new job
+            String local_application_id = message[1], input_file = message[2];
+            return new Job(local_application_id, Integer.parseInt(n));
+
+        } while (msg.isEmpty());
+    }
 }
