@@ -2,7 +2,6 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
 import software.amazon.awssdk.services.sqs.model.CreateQueueResponse;
@@ -55,6 +54,54 @@ public class Manager {
         }
         // לזכור שצריך להבחין בין הוורקרים.
     }
+
+    private static void terminate() {
+    }
+
+    public static void main(String args[]) {
+        Ec2Client ec2 = Ec2Client.create(); // connect to EC2 service
+        S3Client s3 = S3Client.create(); // connect to S3 service
+        SqsClient sqs = SqsClient.create(); // connect to SQS service
+        String local_to_manager_url = AWSAbstractions.queue_Setup(sqs, "dsp-local-to-manager-queue");
+        String manager_to_local_url = AWSAbstractions.queue_Setup(sqs, "dsp-manager-to-local-queue");
+        String manager_to_workers_url = AWSAbstractions.queue_Setup(sqs, "dsp-manager-to-workers-queue");
+        String workers_to_manager_url = AWSAbstractions.queue_Setup(sqs, "dsp-workers-to-manager-queue");
+        int num_of_jobs = 0;
+        ExecutorService executor = Executors.newFixedThreadPool(num_of_threads);
+        boolean terminate = false;
+        int num_of_local_applications = 0;
+        while (!terminate){
+//            Job new_job = getJobFromLocal(local_to_manager_url);
+            ReceiveMessageRequest request = ReceiveMessageRequest.builder().queueUrl(local_to_manager_url)
+                    .maxNumberOfMessages(1).build();    // a request to receive only one message
+
+            List<Message> msg;
+
+            do{
+                msg = sqs.receiveMessage(request).messages();
+                String[] message = msg.get(0).body().split("\t"); // there is max only one message so get it
+                // the statement int localapplication:
+                //  sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody(worker_per_message+"\t"+local_application_id+"\t"+ input_file).build()); //CHECK
+
+                if (n.equals("terminate")) // if the first arg in the message is "terminate" it's a terminate
+                    terminate = true;
+                // else it's a new job
+                String local_application_id = message[1], input_file = message[2];
+
+            } while (msg.isEmpty());
+        }
+
+
+                num_of_local_applications++;
+                num_of_jobs++;
+                Runnable job = new ManagerTask(new Job(local_application_id, n), ec2, sqs, s3, manager_to_workers_url, workers_to_manager_url);
+                executor.execute(job);
+                AwaitForAnswer() - non blocking
+
+        }
+    }
+
+
     // איך אפשר לדעת האם וורקר נפל?
     // hashmap - key- worker, value- line in the input text
     // 1) איך מתחברים לאותו queue של מנג'ר ולוקל במחלקה מנג'ר

@@ -1,3 +1,4 @@
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
@@ -22,11 +23,14 @@ import static java.lang.System.exit;
 
 public class LocalApplication {
 
-    static String inputFileName;
-    static String outputFileName;
-    static String n; // workers’ files ratio (max files per wor
+    // ----------
+    // FIELDS
+    public static String input_file_name;
+    public static String output_file_name;
+    public static String n;
+    // ----------
 
-    public static boolean isManagerActive(Ec2Client ec2) {
+    public static boolean is_Manager_Active(Ec2Client ec2) {
         boolean done = false;
         DescribeInstancesResponse response = ec2.describeInstances();
         outerLoop:
@@ -44,7 +48,7 @@ public class LocalApplication {
         return done;
     }
 
-    public static List<Bucket> initializedBuckets(S3Client s3) {
+    public static List<Bucket> initialized_Buckets(S3Client s3) {
         List<Bucket> buckets = s3.listBuckets().buckets();
         if (buckets.isEmpty()) {
             s3.createBucket(CreateBucketRequest.builder().bucket("input").build());
@@ -57,83 +61,40 @@ public class LocalApplication {
         return buckets;
     }
 
-    public static String createNewManager(Ec2Client ec2) {
-        String amiId = "ami-076515f20540e6e0b";
-        RunInstancesRequest runRequest = RunInstancesRequest.builder()
-                .imageId(amiId)
-                .instanceType(InstanceType.T1_MICRO)
-                .maxCount(1)
-                .minCount(1)
-                .build();
-
-        RunInstancesResponse response = ec2.runInstances(runRequest);
-        String instanceId = response.instances().get(0).instanceId();
-
-        Tag tag = Tag.builder()
-                .key("Name")
-                .value("manager")
-                .build();
-
-        CreateTagsRequest tagRequest = CreateTagsRequest.builder()
-                .resources(instanceId)
-                .tags(tag)
-                .build();
-
-        try {
-            ec2.createTags(tagRequest);
-            System.out.printf(
-                    "Successfully started EC2 Instance %s based on AMI %s",
-                    instanceId, amiId);
-            return instanceId;
-
-        } catch (Ec2Exception e) {
-            System.err.println(e.awsErrorDetails().errorMessage());
-            exit(1);
-        }
-
-        return "";
-    }
-
     public static void main(String[] args) {
-        String worker_per_message = args[2];
+        Region region = Region.US_EAST_1; // set region
+        Ec2Client ec2 = Ec2Client.builder().credentialsProvider(ProfileCredentialsProvider.create()).region(region).build();
+        S3Client s3 = S3Client.create(); // connect to S3 service
+        SqsClient sqs = SqsClient.create(); // connect to SQS service
+        String instance_ID = null;
         String local_application_id = UUID.randomUUID().toString();
-        Ec2Client ec2 = Ec2Client.builder()
-                .region(Region.US_WEST_2)
-                .build();
-        String managerUrl;
-        try {
-            inputFileName = args[0];
-            File f = new File(inputFileName);
-            if (!f.exists()) {
-                System.out.println("Input file does not exist. Please load the app again.");
-                exit(1);
-            }
-            outputFileName = args[1];
-            n = args[2];
-        } catch (Exception e) {
-            System.out.println("can't read arguments as expected.\ncheck your arguments and load the app again.");
+        input_file_name = args[0];
+        File input_file = new File(input_file_name);
+        if (!input_file.exists()) {
+            System.out.println("Input file does not exist. Please load the app again.");
             exit(1);
         }
-        if (!isManagerActive(ec2))
-            managerUrl = createNewManager(ec2);
-        S3Client s3 = S3Client.builder().region(Region.US_WEST_2).build();
-        initializedBuckets(s3);
-        PutObjectResponse input_file = s3.putObject(PutObjectRequest.builder().bucket("input").key(local_application_id).build(), RequestBody.fromFile(new File(inputFileName)));
+        output_file_name = args[1];
+        n = args[2];
+        // ----------
+        // need to fix!
+        if (!is_Manager_Active(ec2)) {
+            String user_data =  "#! /bin/bash\n"+"wget https://"+/*PLACEHOLDER*/+"/Manager.jar\n"+"java -jar Manager.jar\n";
+            instance_ID = AWSAbstractions.create_EC2_Instance(ec2, "manager", "ami-076515f20540e6e0b", user_data);
+        }
+        // ----------
+        initialized_Buckets(s3);
+        PutObjectResponse input_file_in_S3 = s3.putObject(PutObjectRequest.builder().bucket("input").key(local_application_id).build(), RequestBody.fromFile(input_file));
+        String local_to_manager_url = AWSAbstractions.queue_Setup(sqs, "dsp-local-to-manager-queue");
+        String manager_to_local_url = AWSAbstractions.queue_Setup(sqs, "dsp-manager-to-local-queue");
+        sqs.sendMessage(SendMessageRequest.builder().queueUrl(local_to_manager_url).messageBody(n+"\t"+local_application_id+"\t"+input_file).build());
 
-        SqsClient sqs = SqsClient.builder().region(Region.US_WEST_2).build();
-        CreateQueueResponse localQueueRes =
-                sqs.createQueue(CreateQueueRequest.builder().queueName("dsp-local-to-manager-queue").build());
-        String localManagerQueueUrl = localQueueRes.queueUrl(); // a url to a queue from the local app to the manager
-
-        CreateQueueResponse managerQueueRes =
-                sqs.createQueue(CreateQueueRequest.builder().queueName(local_application_id).build());
-        String managerLocalQueueUrl = managerQueueRes.queueUrl(); // a url to a queue from the manager to the local app
-        sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody(worker_per_message+"\t"+local_application_id+"\t"+ input_file).build()); //CHECK
-
-        for (;;)    // loop until we get a message
+        if (args.length > 3 && args[3].equals("terminate")) //if we are on termination mode send a termination message to the manager
+            sqs.sendMessage(SendMessageRequest.builder().queueUrl(local_to_manager_url).messageBody("terminate").build());
+        for (;;) // wait until we get a "done" msg
         {
             List<Message> messages =
-                    sqs.receiveMessage(ReceiveMessageRequest.builder().queueUrl(managerLocalQueueUrl).build()).messages();
+                    sqs.receiveMessage(ReceiveMessageRequest.builder().queueUrl(manager_to_local_url).build()).messages();
             if (!messages.isEmpty()) {
                 String[] message = messages.get(0).body().split("\t");
                 if (message[0].equals("done task")) {
@@ -141,13 +102,10 @@ public class LocalApplication {
                     String text = new BufferedReader(
                             new InputStreamReader(sum, StandardCharsets.UTF_8)).lines()
                             .collect(Collectors.joining("\n"));
-
                     try { // create html file
-                        FileWriter fd = new FileWriter(outputFileName + ".html");
+                        FileWriter fd = new FileWriter(output_file_name + ".html");
                         fd.write(text);
                         fd.close();
-                        if (args.length > 3 && args[3].equals("terminate")) //if we are on termination mode send a termination message to the manager
-                            sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerQueueUrl).messageBody("terminate").build());
                         break; // break after
                     } catch (IOException e) {
                         System.out.println("An error occurred.");

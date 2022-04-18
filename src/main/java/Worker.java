@@ -1,16 +1,15 @@
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
+import tools.AWSAbstractions;
+import tools.Parser;
+
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.stream.Collectors;
-import static java.lang.System.exit;
 
 //        ▪ Gets a message from an SQS queue. V
 //        ▪ Downloads the text file indicated in the message. V
@@ -38,14 +37,10 @@ public class Worker {
     public static void main(String[] args) {
         SqsClient sqs = SqsClient.builder().region(Region.US_WEST_2).build();
         S3Client s3 = S3Client.builder().region(Region.US_WEST_2).build();
-        CreateQueueResponse workerQueueRes =
-                sqs.createQueue(CreateQueueRequest.builder().queueName("dsp-manager-queue").build());
-        CreateQueueResponse managerQueueRes =
-                sqs.createQueue(CreateQueueRequest.builder().queueName("dsp-worker-queue").build());
-        String managerUrl = managerQueueRes.queueUrl();
-        String workerUrl = workerQueueRes.queueUrl();
+        String manager_to_workers_url = AWSAbstractions.queue_Setup(sqs, "dsp-manager-to-workers-queue");
+        String workers_to_manager_url = AWSAbstractions.queue_Setup(sqs, "dsp-workers-to-manager-queue");
         ReceiveMessageRequest receiveMessageRequest = ReceiveMessageRequest.builder()
-                .queueUrl(workerUrl)
+                .queueUrl(manager_to_workers_url)
                 .maxNumberOfMessages(1)
                 .build();
         for (; ; ) {
@@ -59,11 +54,11 @@ public class Worker {
                     // message[0] = local application ID
                     // message[1] = type
                     // message[2] = input file URL
-                    sqs.sendMessage(SendMessageRequest.builder().queueUrl(managerUrl).messageBody(message[2]+"\t"+file+"\t"+message[1]).build());
-                    delete_Message(workerUrl, messages.get(0), sqs);
+                    sqs.sendMessage(SendMessageRequest.builder().queueUrl(workers_to_manager_url).messageBody("done one task"+message[2]+"\t"+file+"\t"+message[1]).build());
+                    delete_Message(manager_to_workers_url, messages.get(0), sqs);
                 } catch (Exception e) {
-                    sqs.sendMessage(SendMessageRequest.builder().queueUrl(managerUrl).messageBody("an exception from kind " + e + "has occurred because of the input file " + message[1]).build());
-                    delete_Message(workerUrl, messages.get(0), sqs);
+                    sqs.sendMessage(SendMessageRequest.builder().queueUrl(workers_to_manager_url).messageBody("an exception from kind " + e + "has occurred because of the input file " + message[1]).build());
+                    delete_Message(manager_to_workers_url, messages.get(0), sqs);
                 }
             }
         }
