@@ -35,6 +35,16 @@ public class ManagerTask implements Runnable {
         while (true) {
             try {
                 if (reader.ready()) {
+                    int n = job.get_N();
+                    int num_of_workers = num_of_tasks / n;
+                    if (num_of_tasks % n != 0)
+                        num_of_workers++;
+
+                    for (int i = 0; i < num_of_workers; i++) {
+                        String user_data =  "#! /bin/bash\n"+"wget https://"+/*PLACEHOLDER*/+"/Worker.jar\n"+"java -jar Worker.jar\n";
+                        String workerInstanceId = AWSAbstractions.CreateEC2Instance(ec2, "worker", user_data);
+                        AWSAbstractions.addWorker(workerInstanceId);
+                    }
                     num_of_tasks++;
                     String line = reader.readLine();
                     String[] message = line.split("\t");
@@ -43,15 +53,7 @@ public class ManagerTask implements Runnable {
                     sqs.sendMessage(SendMessageRequest.builder().queueUrl(manager_to_workers_url)
                             .messageBody(job.get_Local_Application_Id() + "\t" + type + "\t" + url).build());
                 }
-                int n = job.get_N();
-                int num_of_workers = num_of_tasks / n;
-                if (num_of_tasks % n != 0)
-                    num_of_workers++;
 
-                for (int i = 0; i < num_of_workers; i++) {
-                    String user_data =  "#! /bin/bash\n"+"wget https://"+/*PLACEHOLDER*/+"/Worker.jar\n"+"java -jar Worker.jar\n";
-                    AWSAbstractions.create_EC2_Instance(ec2, "worker", "ami-076515f20540e6e0b", user_data);
-                }
 
                 String result = AWSAbstractions.wait_For_Answer(sqs, workers_to_manager_url, "done one task", num_of_tasks);
 

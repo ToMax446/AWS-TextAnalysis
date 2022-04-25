@@ -5,11 +5,41 @@ import software.amazon.awssdk.services.ec2.model.*;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AWSAbstractions {
+    private static ConcurrentHashMap<String, List<Message>> workers;
+    private static String amiId = "ami-076515f20540e6e0b";
 
-    public static String wait_For_Answer(SqsClient sqs,String queueURL,String waitFor,int numofmessages) {
+    public static void reassignTasks(String id) {
+        SqsClient sqs = getSQSClient();
+        String ManagerWorkersSQS = AWSAbstractions.QueueSetup(sqs, "manager-to-workers-queue");
+        List<Message> tasks = workers.get(id);
+        for (Message task: tasks){
+            sqs.sendMessage(SendMessageRequest.builder().queueUrl(ManagerWorkersSQS).messageBody(task.body()).build());
+        }
+        workers.remove(id);
+    }
+    
+    public static void addWorker(String id){
+        workers.put(id, new ArrayList());
+    }
+
+    public static void addTask(String id, Message message){
+        workers.get(id).add(message);
+    }
+
+    public static ConcurrentHashMap<String, List<Message>> getWorkers(){
+        return workers;
+    }
+
+    public static int getWorkersSize(){
+        return workers.size();
+    }
+
+    public static String waitForAnswer(SqsClient sqs, String queueURL, String waitFor, int numofmessages) {
         String result = "";
         int counter = 0;
         while (counter < numofmessages) {

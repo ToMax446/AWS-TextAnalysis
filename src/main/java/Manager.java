@@ -18,11 +18,14 @@ import java.util.concurrent.Executors;
 import static java.lang.System.exit;
 
 public class Manager {
-    static int number_of_workers = 0;
-    static int worker_per_message = 0;
-    static int max_number_of_workers = 18;
+    private static int workerPerMessage = 0;
+    private static int maxNumberOfWorkers = 18;
+    private static String LocalManagerSQS;
+    private static String ManagerLocalSQS;
+    private static String ManagerWorkersSQS;
+    private static String WorkersManagerSQS;
     // NEED TO ADD SYNC
-    static int num_of_threads = 10;
+    private static int numOfThreads = 10;
 
     private void bootstraps_Nodes(Ec2Client ec2) {
         int count = Math.min(max_number_of_workers - number_of_workers, worker_per_message);
@@ -33,19 +36,16 @@ public class Manager {
         // לזכור שצריך להבחין בין הוורקרים.
     }
 
-    private static void terminate() {
-    }
-
     public static void main(String args[]) {
         Ec2Client ec2 = Ec2Client.create(); // connect to EC2 service
         S3Client s3 = S3Client.create(); // connect to S3 service
         SqsClient sqs = SqsClient.create(); // connect to SQS service
-        String local_to_manager_url = AWSAbstractions.queue_Setup(sqs, "dsp-local-to-manager-queue");
-        String manager_to_local_url = AWSAbstractions.queue_Setup(sqs, "dsp-manager-to-local-queue");
-        String manager_to_workers_url = AWSAbstractions.queue_Setup(sqs, "dsp-manager-to-workers-queue");
-        String workers_to_manager_url = AWSAbstractions.queue_Setup(sqs, "dsp-workers-to-manager-queue");
+        LocalManagerSQS = AWSAbstractions.QueueSetup(sqs, "local-to-manager-queue");
+        ManagerLocalSQS = AWSAbstractions.QueueSetup(sqs, "manager-to-local-queue");
+        ManagerWorkersSQS = AWSAbstractions.QueueSetup(sqs, "manager-to-workers-queue");
+        WorkersManagerSQS = AWSAbstractions.QueueSetup(sqs, "workers-to-manager-queue");
         int num_of_jobs = 0;
-        ExecutorService executor = Executors.newFixedThreadPool(num_of_threads);
+        ExecutorService executor = Executors.newFixedThreadPool(numOfThreads);
         boolean terminate = false;
         int num_of_local_applications = 0;
         while (!terminate){

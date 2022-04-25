@@ -65,6 +65,70 @@ public class LocalApplication {
         return buckets;
     }
 
+    public static void main(String[] args) throws IOException, InterruptedException {
+
+        if (args.length >= 3) {
+            // arguments
+            String path = System.getProperty("user.dir"); ///home/caspl202/IdeaProjects/DSP1
+            String Input = args[0];
+            InputFile = path + "/src/" + Input;
+            String Output = args[1];
+            OutputFile = new File(path + "/src/" + Output);
+            n = Integer.parseInt(args[2]);
+            if (args.length == 4) {
+                terminate = true;
+            }
+            LocalApplocationId = UUID.randomUUID().toString();
+
+            ec2 = AWSAbstractions.getEC2Client();
+            SqsClient sqs = AWSAbstractions.getSQSClient();
+            S3Client s3 = AWSAbstractions.getS3Client();
+
+            InitializedBuckets(s3);
+
+            // find the manager
+            ActivateManager();
+
+            // upload the input file to S3
+            PutObjectResponse FileLocation = s3.putObject(PutObjectRequest.builder().bucket("input").key(LocalApplocationId).build(), RequestBody.fromFile(new File(InputFile)));
+
+            // send message to the manager
+            sqs.sendMessage(SendMessageRequest.builder().queueUrl(LocalManagerSQS).messageBody(n + "\t" + LocalApplocationId + "\t" + FileLocation).build());
+
+            // check if the process is DONE
+            for (;;) {
+                List<Message> messages =
+                        sqs.receiveMessage(ReceiveMessageRequest.builder().queueUrl(ManagerLocalSQS).maxNumberOfMessages(1).build()).messages();
+                if (!messages.isEmpty()) {
+                    String[] message = messages.get(0).body().split("\t");
+                    if (message[0].equals("done task")) {
+                        InputStream sum = s3.getObject(GetObjectRequest.builder().bucket("summary").key(LocalApplocationId).build());
+                        String text = new BufferedReader(
+                                new InputStreamReader(sum, StandardCharsets.UTF_8)).lines()
+                                .collect(Collectors.joining("\n"));
+                        try {
+                            // create html file
+                            FileWriter fd = new FileWriter(OutputFile + ".html");
+                            fd.write(text);
+                            fd.close();
+                            break; // break after
+                        } catch (IOException e) {
+                            System.out.println("An error occurred.");
+                            exit(1);
+                        }
+                    }
+                }
+            }
+
+            // if terminate = true thn send a message to the manager
+            if (terminate)
+                sqs.sendMessage(SendMessageRequest.builder().queueUrl(LocalManagerSQS).messageBody("terminate" + "\t" + LocalApplocationId).build());
+        } else {
+            System.out.println("There are not enough arguments.");
+        }
+    }
+}
+
     public static void main(String[] args) {
         Region region = Region.US_EAST_1; // set region
         Ec2Client ec2 = Ec2Client.builder().credentialsProvider(ProfileCredentialsProvider.create()).region(region).build();
