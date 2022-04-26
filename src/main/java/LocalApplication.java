@@ -1,6 +1,5 @@
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 import software.amazon.awssdk.services.ec2.model.CreateTagsRequest;
@@ -71,44 +70,44 @@ public class LocalApplication {
             // arguments
             String path = System.getProperty("user.dir"); ///home/caspl202/IdeaProjects/DSP1
             String Input = args[0];
-            InputFile = path + "/src/" + Input;
+            inputFile = path + "/src/" + Input;
             String Output = args[1];
-            OutputFile = new File(path + "/src/" + Output);
+            outputFile = new File(path + "/src/" + Output);
             n = Integer.parseInt(args[2]);
             if (args.length == 4) {
                 terminate = true;
             }
-            LocalApplocationId = UUID.randomUUID().toString();
+            localApplocationId = UUID.randomUUID().toString();
 
             ec2 = AWSAbstractions.getEC2Client();
             SqsClient sqs = AWSAbstractions.getSQSClient();
             S3Client s3 = AWSAbstractions.getS3Client();
 
-            InitializedBuckets(s3);
+            initializedBuckets(s3);
 
             // find the manager
-            ActivateManager();
+            activateManager(localApplocationId);
 
             // upload the input file to S3
-            PutObjectResponse FileLocation = s3.putObject(PutObjectRequest.builder().bucket("input").key(LocalApplocationId).build(), RequestBody.fromFile(new File(InputFile)));
+            PutObjectResponse fileLocation = s3.putObject(PutObjectRequest.builder().bucket("input").key(localApplocationId).build(), RequestBody.fromFile(new File(inputFile)));
 
             // send message to the manager
-            sqs.sendMessage(SendMessageRequest.builder().queueUrl(LocalManagerSQS).messageBody(n + "\t" + LocalApplocationId + "\t" + FileLocation).build());
+            sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerSQS).messageBody("new job" + "\t" + n + "\t" + localApplocationId + "\t" + fileLocation).build());
 
             // check if the process is DONE
             for (;;) {
                 List<Message> messages =
-                        sqs.receiveMessage(ReceiveMessageRequest.builder().queueUrl(ManagerLocalSQS).maxNumberOfMessages(1).build()).messages();
+                        sqs.receiveMessage(ReceiveMessageRequest.builder().queueUrl(managerLocalSQS).maxNumberOfMessages(1).build()).messages();
                 if (!messages.isEmpty()) {
                     String[] message = messages.get(0).body().split("\t");
-                    if (message[0].equals("done task")) {
-                        InputStream sum = s3.getObject(GetObjectRequest.builder().bucket("summary").key(LocalApplocationId).build());
+                    if (message[0].equals("done job")) {
+                        InputStream sum = s3.getObject(GetObjectRequest.builder().bucket("summary").key(localApplocationId).build());
                         String text = new BufferedReader(
                                 new InputStreamReader(sum, StandardCharsets.UTF_8)).lines()
                                 .collect(Collectors.joining("\n"));
                         try {
                             // create html file
-                            FileWriter fd = new FileWriter(OutputFile + ".html");
+                            FileWriter fd = new FileWriter(outputFile + ".html");
                             fd.write(text);
                             fd.close();
                             break; // break after
@@ -122,7 +121,7 @@ public class LocalApplication {
 
             // if terminate = true thn send a message to the manager
             if (terminate)
-                sqs.sendMessage(SendMessageRequest.builder().queueUrl(LocalManagerSQS).messageBody("terminate" + "\t" + LocalApplocationId).build());
+                sqs.sendMessage(SendMessageRequest.builder().queueUrl(localManagerSQS).messageBody("terminate" + "\t" + localApplocationId).build());
         } else {
             System.out.println("There are not enough arguments.");
         }

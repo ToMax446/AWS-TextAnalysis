@@ -10,62 +10,43 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AWSAbstractions {
-    private static ConcurrentHashMap<String, List<Message>> workers;
+    private static ConcurrentHashMap<String, List<String>> workers;
+    private static ConcurrentHashMap<String, Integer> localAppTasks; // localAppId to num of tasks
+    private static ConcurrentHashMap<String, List<String>> tasksID;
     private static String amiId = "ami-076515f20540e6e0b";
 
     public static void reassignTasks(String id) {
         SqsClient sqs = getSQSClient();
-        String ManagerWorkersSQS = AWSAbstractions.QueueSetup(sqs, "manager-to-workers-queue");
-        List<Message> tasks = workers.get(id);
-        for (Message task: tasks){
-            sqs.sendMessage(SendMessageRequest.builder().queueUrl(ManagerWorkersSQS).messageBody(task.body()).build());
+        String ManagerWorkersSQS = AWSAbstractions.queueSetup(sqs, "manager-to-workers-queue");
+        List<String> tasks = workers.get(id);
+        for (String task: tasks){
+            sqs.sendMessage(SendMessageRequest.builder().queueUrl(ManagerWorkersSQS).messageBody(task).build());
         }
         workers.remove(id);
+    }
+
+    public static void addTaskID(String localApplicationID, String taskID) {
+        tasksID.get(localApplicationID).add(taskID);
+    }
+
+    public static List<String> getTasks(String id) {
+        return tasksID.get(id);
     }
     
     public static void addWorker(String id){
         workers.put(id, new ArrayList());
     }
 
-    public static void addTask(String id, Message message){
-        workers.get(id).add(message);
+    public static void addTask(String id, String task){
+        workers.get(id).add(task);
     }
 
-    public static ConcurrentHashMap<String, List<Message>> getWorkers(){
-        return workers;
+    public static List<String> getWorkers(){
+        return new ArrayList<>(workers.keySet());
     }
 
     public static int getWorkersSize(){
         return workers.size();
-    }
-
-    public static String waitForAnswer(SqsClient sqs, String queueURL, String waitFor, int numofmessages) {
-        String result = "";
-        int counter = 0;
-        while (counter < numofmessages) {
-            ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
-                    .queueUrl(queueURL)
-                    .maxNumberOfMessages(1)
-                    .build();
-            List<Message> messages = sqs.receiveMessage(receiveRequest).messages();
-            for (Message message : messages) {
-                String done = message.body();
-                if (done != null) {
-                    String[] msg = done.split("\t");
-                    if (msg[0].equals(waitFor)) {
-                        counter++;
-                        DeleteMessageRequest deleteMessageRequest = DeleteMessageRequest.builder()
-                                .queueUrl(queueURL)
-                                .receiptHandle(message.receiptHandle())
-                                .build();
-                        sqs.deleteMessage(deleteMessageRequest);
-                    }
-                } else {
-                    System.out.println("class Msg fail");
-                }
-            }
-        }
-        return result;
     }
 
     public static String create_EC2_Instance(Ec2Client ec2, String name, String amiId, String user_data) {
