@@ -7,7 +7,6 @@ import software.amazon.awssdk.services.sqs.model.CreateQueueResponse;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import tools.AWSAbstractions;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,7 +28,11 @@ public class Manager {
         workersManagerSQS = AWSAbstractions.queueSetup(sqs, "workers-to-manager-queue");
         ExecutorService executor = Executors.newFixedThreadPool(numOfThreads);
         boolean terminate = false;
-        int numOfLocalApplications = 0;
+
+        Runnable workerConnection = new WorkerConnection();
+        Runnable managerWorkerCommunication = new ManagerWorkersCommunication();
+        executor.execute(workerConnection);
+        executor.execute(managerWorkerCommunication);
         while (!terminate) {
 
             // a request to receive only one message

@@ -60,7 +60,7 @@ public class Worker {
                 // acknowledge message for manager
                 String ackMsg = "ack task" + "\t" + workerID + "\t" + messages.get(0).body();
                 // tell manager what task we took
-                sqs.sendMessage(SendMessageRequest.builder().queueUrl(managerWorkersSQS).messageBody(ackMsg).build());
+                sqs.sendMessage(SendMessageRequest.builder().queueUrl(workersManagerSQS).messageBody(ackMsg).build());
                 deleteMessage(managerWorkersSQS, messages.get(0), sqs);
 
                 String taskKey = UUID.randomUUID().toString(); // for uploading the file

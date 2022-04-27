@@ -12,60 +12,58 @@ public class Parser {
     public static void parseFile(String fileName) {
         String parserModel = "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz";
         LexicalizedParser lp = LexicalizedParser.loadModel(parserModel);
+        FileInputStream fstream = new FileInputStream(fileLocation);
+        DataInputStream in = new DataInputStream(fstream); // Get the object of DataInputStream
+        BufferedReader br = new BufferedReader(new InputStreamReader(in));
+        StringReader sr; // we need to re-read each line into its own reader because the tokenizer is over-complicated garbage
+        PTBTokenizer tkzr; // tokenizer object
+        WordStemmer ls = new WordStemmer(); // stemmer/lemmatizer object
 
-//        try (Stream<String> stream
-//                     = Files.lines(Paths.get(fileName), StandardCharsets.UTF_8))
-//        {
-//            //run method for each line in stream lazily
-//            stream.forEach(l -> DP(lp, l));
-//        }
-//        catch (IOException e) {
-//            e.printStackTrace();
-//        }
+        // Read File Line By Line
+        String strLine;
+        ArrayList<String> words = new ArrayList();
+        ArrayList<String> tags = new ArrayList();
+        String penn = null;
+        StringBuilder result = new StringBuilder();
 
-        DP(lp, fileName);
-    }
+        Collection tdl = null;
+        while ((strLine = br.readLine()) != null) {
+            System.out.println("Tokenizing and Parsing: " + strLine); // print current line to console
 
-    // This option shows loading and using an explicit tokenizer
-//    public static void API(LexicalizedParser lp, String line){
-//        List<CoreLabel> rawWords = SentenceUtils.toCoreLabelList(line);
-//        Tree parse = lp.apply(rawWords);
-//        TokenizerFactory<CoreLabel> tokenizerFactory =
-//                PTBTokenizer.factory(new CoreLabelTokenFactory(), "");
-//        Tokenizer<CoreLabel> tok =
-//                tokenizerFactory.getTokenizer(new StringReader(line));
-//        List<CoreLabel> rawWords2 = tok.tokenize();
-//        parse = lp.apply(rawWords2);
-//
-//        TreebankLanguagePack tlp = lp.treebankLanguagePack(); // PennTreebankLanguagePack for English
-//        GrammaticalStructureFactory gsf = tlp.grammaticalStructureFactory();
-//        GrammaticalStructure gs = gsf.newGrammaticalStructure(parse);
-//        List<TypedDependency> tdl = gs.typedDependenciesCCprocessed();
-//        System.out.println(tdl);
-//        System.out.println();
-//    }
+            // do all the standard java over-complication to use the stanford parser tokenizer
+            sr = new StringReader(strLine);
+            tkzr = PTBTokenizer.newPTBTokenizer(sr);
+            List toks = tkzr.tokenize();
+            System.out.println("tokens: " + toks);
 
-    public static void DP(LexicalizedParser lp, String filename) {
-        // This option shows loading, sentence-segmenting and tokenizing
-        // a file using DocumentPreprocessor.
-        TreebankLanguagePack tlp = lp.treebankLanguagePack(); // a PennTreebankLanguagePack for English
-        GrammaticalStructureFactory gsf = null;
-        if (tlp.supportsGrammaticalStructures()) {
-            gsf = tlp.grammaticalStructureFactory();
-        }
-        // You could also create a tokenizer here (as below) and pass it
-        // to DocumentPreprocessor
-        for (List<HasWord> sentence : new DocumentPreprocessor(filename)) {
-            Tree parse = lp.apply(sentence);
-            parse.pennPrint();
-            System.out.println();
+            Tree parse = (Tree) lp.apply(toks); // finally, we actually get to parse something
 
-            if (gsf != null) {
+            // Get words, stemmed words and POS tags
+
+            if (type.equals("POS")) {
+                for (TaggedWord tw : parse.taggedYield()) {
+                    words.add(tw.word());
+                    tags.add(tw.tag());
+                    result.append(tw);
+                }
+            }
+            if (type.equals("DEPENDENCY")) {
+                TreebankLanguagePack tlp = new PennTreebankLanguagePack();
+                GrammaticalStructureFactory gsf = tlp.grammaticalStructureFactory();
                 GrammaticalStructure gs = gsf.newGrammaticalStructure(parse);
-                Collection tdl = gs.typedDependenciesCCprocessed();
-                System.out.println(tdl);
-                System.out.println();
+                tdl = gs.typedDependenciesCollapsed();
+                result.append(tdl);
+            }
+
+            if (type.equals("CONSTITUENCY")) {
+                penn = parse.pennString();
+                result.append(penn);
             }
         }
+        File file = new File("output.txt");
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+            writer.append(result);
+        }
+        return file;
     }
 }

@@ -68,11 +68,11 @@ public class LocalApplication {
 
         if (args.length >= 3) {
             // arguments
-            String path = System.getProperty("user.dir"); ///home/caspl202/IdeaProjects/DSP1
-            String Input = args[0];
-            inputFile = path + "/src/" + Input;
-            String Output = args[1];
-            outputFile = new File(path + "/src/" + Output);
+            String path = System.getProperty("user.dir");
+            String input = args[0];
+            inputFile = path + "/src/" + input;
+            String output = args[1];
+            outputFile = new File(path + "/src/" + output);
             n = Integer.parseInt(args[2]);
             if (args.length == 4) {
                 terminate = true;

@@ -1,7 +1,5 @@
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.ec2.model.Instance;
-import software.amazon.awssdk.services.ec2.model.Reservation;
 import software.amazon.awssdk.services.ec2.model.TerminateInstancesRequest;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -23,7 +21,7 @@ public class ManagerWorkersCommunication implements Runnable {
         SqsClient sqs = AWSAbstractions.getSQSClient();
         S3Client s3 = AWSAbstractions.getS3Client();
         String workersManagerSQS = AWSAbstractions.queueSetup(sqs, "workers-to-manager-queue");
-        while (!Thread.currentThread().isInterrupted()) {
+        while (true) {
             ReceiveMessageRequest receiveMessageRequest = ReceiveMessageRequest.builder()
                     .queueUrl(workersManagerSQS)
                     .maxNumberOfMessages(1)
@@ -45,14 +43,14 @@ public class ManagerWorkersCommunication implements Runnable {
                     String task = localApplicationID + "\t" + typeOfAnalysis + "\t" + requiredFile;
                     AWSAbstractions.doneTask(localApplicationID, workerID, task); // lock?
                     if (AWSAbstractions.numOfTasks(localApplicationID) == 0) {
+                        AWSAbstractions.removeLocalApp(localApplicationID);
                         try {
                             if (Thread.currentThread().isInterrupted()) {
                                 for (String worker : AWSAbstractions.getWorkers()) {
                                     ec2.terminateInstances(TerminateInstancesRequest.builder().instanceIds(worker).build());
                                     System.out.println("terminating worker: " + worker);
                                 }
-                                // terminate the manager
-                                //
+                                break;
                             }
                             InputStream result = new FileInputStream("result.txt");
                             for (String taskID : AWSAbstractions.getTasks(localApplicationID)) {
