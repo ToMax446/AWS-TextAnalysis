@@ -8,6 +8,8 @@ The tool is running on AWS using EC2, S3 and SQS to manage and distribute the pa
 ## Requirements
  - Java SE 8+
  - AWS account
+ - Instance Type: T2_MICRO
+
 
 ## Activation
 
@@ -23,7 +25,7 @@ The connection with the workers, and a worker checker (more on that later) run o
 #### S3 storage
 AWS's S3 is limited to 100 buckets in a single run. So we used one bucket for each type of file, and the division between each local application is done by using UUID as a local application's identifier. This identifier is later used to create a folder in S3 for all single parsing (a task) of the job, and then the Manager can combine it all to a single result file.
 #### Heavy text parsing
-Parsing multiple text files can be heavy, but out tool will launch EC2 instances on demand, and will distribute the Job into tasks between them. Since this is a course assignment, we did not delegate and micro-managed the distribution, but rather split the Job to file, having each file as a Task.
+Parsing multiple text files can be heavy, but our tool will launch EC2 instances on demand, and will distribute the Job into tasks between them. Since this is a course assignment, we did not delegate and micro-managed the distribution, but rather split the Job to file, having each file as a Task.
 ### All-In-One
 All of the files, including Manager and Worker's jar files, Parsing model, etc are residing on S3 in a dedicated buckets. Once you put your credentials correctly, you do not need any special image (AMI) to run our tool.
 ### Parsing the files
